@@ -12,8 +12,6 @@ import {
   Platform,
 } from 'react-native';
 
-const connectionId = makeId();
-
 import {
   RTCPeerConnection,
   RTCMediaStream,
@@ -24,19 +22,17 @@ import {
   getUserMedia,
 } from 'react-native-webrtc';
 
-// const configuration = {"iceServers": [{"url": "stun:stun.l.google.com:19302"}]};
 
-const pcPeers = {};
+let peerConnection;
 const url = 'wss://push.aws-stage-rt.veritone.com/socket';
-// let peerConnection;
-// let localStream;
+const connectionId = makeId(6);
 
-function makeId() {
+function makeId(length) {
   // generates a random string as the connectionId
   var text = "";
   var possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
-  for (var i = 0; i < 5; i++)
+  for (var i = 0; i < length; i++)
     text += possible.charAt(Math.floor(Math.random() * possible.length));
 
   return text;
@@ -47,7 +43,6 @@ function getLocalStream(isFront, callback) {
   let videoSourceId;
 
   // on android, you don't have to specify sourceId manually, just use facingMode
-  // uncomment it if you want to specify
   if (Platform.OS === 'ios') {
     MediaStreamTrack.getSources(sourceInfos => {
       console.log("sourceInfos: ", sourceInfos);
@@ -172,72 +167,38 @@ function getLocalStream(isFront, callback) {
 //   return pc;
 // }
 
-function exchange(data) {
-  const fromId = data.from;
-  let pc;
-  if (fromId in pcPeers) {
-    pc = pcPeers[fromId];
-  } else {
-    pc = createPC(fromId, false);
-  }
+// function exchange(data) {
+//   const fromId = data.from;
+//   let pc;
+//   if (fromId in pcPeers) {
+//     pc = pcPeers[fromId];
+//   } else {
+//     pc = createPC(fromId, false);
+//   }
 
-  if (data.sdp) {
-    console.log('exchange sdp', data);
-    pc.setRemoteDescription(new RTCSessionDescription(data.sdp), function () {
-      if (pc.remoteDescription.type == "offer")
-        pc.createAnswer(function(desc) {
-          console.log('createAnswer', desc);
-          pc.setLocalDescription(desc, function () {
-            console.log('setLocalDescription', pc.localDescription);
-            socket.emit('exchange', {'to': fromId, 'sdp': pc.localDescription });
-          }, logError);
-        }, logError);
-    }, logError);
-  } else {
-    console.log('exchange candidate', data);
-    // TODO: this line should be after on record
-    // pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-  }
-}
+//   if (data.sdp) {
+//     console.log('exchange sdp', data);
+//     pc.setRemoteDescription(new RTCSessionDescription(data.sdp), function () {
+//       if (pc.remoteDescription.type == "offer")
+//         pc.createAnswer(function(desc) {
+//           console.log('createAnswer', desc);
+//           pc.setLocalDescription(desc, function () {
+//             console.log('setLocalDescription', pc.localDescription);
+//             socket.emit('exchange', {'to': fromId, 'sdp': pc.localDescription });
+//           }, logError);
+//         }, logError);
+//     }, logError);
+//   } else {
+//     console.log('exchange candidate', data);
+//     // TODO: this line should be after on record
+//     // pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+//   }
+// }
 
-function leave(connectionId) {
-  console.log('leave', connectionId);
-  const viewIndex = peerConnection.viewIndex;
-  const peerConnection = pcPeers[connectionId];
-  peerConnection.close();
-  delete pcPeers[connectionId];
-
-};
-
-function setupSocket() {
-  // const socket = io.connect('https://react-native-webrtc.herokuapp.com', {transports: ['websocket']});
-  const socket = io.connect('wss://push.aws-stage-rt.veritone.com/socket', {transports: ['websocket']});
-
-  // socket.on('exchange', function(data){
-  //   exchange(data);
-  // });
-  socket.on('connect', function(data) {
-    console.log('connect');
-  });
-
-  socket.on('event', function(data) {
-    console.log('event:', data);
-  });
-
-  socket.on('message', function(data) {
-    console.log('message:', data);
-  });
-
-  socket.on('leave', function(connectionId){
-    leave(connectionId);
-  });
-  
-
-};
 
 function logError(error) {
   console.log("logError", error);
-}
+};
 
 
 function getStats() {
@@ -256,7 +217,8 @@ function createPeerConnection(localStream) {
   const configuration = {};
   const pc = new RTCPeerConnection(configuration);
   // pc.createOffer
-  pcPeers[connectionId] = pc;
+  // pcPeers[connectionId] = pc;
+  peerConnection = pc;
   peerConnection.addStream(localStream);
 
 };
@@ -271,61 +233,53 @@ function setupWebRTCSession(component) {
       localStream: stream
     });
 
-    // createPeerConnection(stream);
+    createPeerConnection(stream);
 
   });
 };
 
 
-// function setupWebSocket(connectionId, localStream) {
-// const socket = io.connect('wss://push.aws-stage-rt.veritone.com/socket', {transports: ['websocket']});
 const socket = new WebSocket(url);
 socket.onopen = (event) => {
   console.log('open', event);
+  peerConnection.createOffer(connectionId).then((offer) => {
+    console.log('settinglocaldescription:', offer);
+    const params = {
+      "id": "start", 
+      "sdpOffer": offer.sdp,
+      "jobId": "",
+      "sourceId": "",
+      "authToken": ""
+    };
+    console.log('sending to server:', params);
+    socket.send(JSON.stringify(params));
+    return peerConnection.setLocalDescription(offer);
+  })
+  .then(() => {
+    console.log('send to server');
+  })
+  .catch((error) => {
+    console.log('error:', error);
+  });
+};
+
+socket.onerror = (error) => {
+  console.log('error:', error);
+
+  //TODO: stop recording
+};
+
+socket.onclose = (event) => {
+  // const viewIndex = peerConnection.viewIndex;
+  peerConnection.close();
+  peerConnection = null;
+  //TODO: stop recording
 };
 
 socket.onmessage = (event) => {
   console.log('message', event);
+  console.log(event.data);
 };
-
-//socket.close();
-
-
-// socket.on('connect', function (data) {
-//   console.log('connected', data);
-// });
-// socket.on('connection', function(data) {
-//   console.log('connection', data);
-// });
-
-// socket.on('event', function (data) {
-//   console.log('event', data);
-// });
-
-// socket.on('close', function (connectionId) {
-//   console.log('close');
-//   leave(connectionId);
-// });
-
-// socket.on('leave', function(connectionId) {
-//   console.log('leave');
-//   leave(connectionId);
-// })
-
-// socket.on('open', function (data) {
-//   console.log('open', data);
-// });
-
-  // peerConnection.createOffer(connectionId);
-
-  // pc.createOffer(function(desc) {
-  //   console.log('createOffer', desc);
-  //   pc.setLocalDescription(desc, function () {
-  //     console.log('setLocalDescription', pc.localDescription);
-  //     // socket.emit('exchange', {'to': socketId, 'sdp': pc.localDescription });
-  //   }, logError);
-  // }, logError);
-// }
 
 
 
@@ -336,7 +290,8 @@ export default class App extends Component {
     isFront: false,
     videoURL: null,
     localStream: null,
-    record: 'Start Recording'
+    record: 'Start Recording',
+    socket: null
   };
 
   componentWillMount() {
@@ -345,15 +300,51 @@ export default class App extends Component {
     
     // createPC(connectionId, true, this.state.localStream);
     
-    
   };
 
   componentWillUnmount() {
-    const viewIndex = peerConnection.viewIndex;
-    pcPeers[connectionId].close();
-    delete pcPeers[connectionId];
+    peerConnection.close();
+    peerConnection = null;
+    // pcPeers[connectionId].close();
+    // delete pcPeers[connectionId];
     this.state.localStream.release();
+    //socket.close();
   };
+
+
+  setupWebSocket = () => {
+    const socket = new WebSocket(url);
+    socket.onopen = (event) => {
+      console.log('open', event);
+      peerConnection.createOffer(connectionId);
+    };
+
+    socket.onerror = (error) => {
+      console.log('error:', error);
+
+      //TODO: stop recording
+    };
+
+    socket.onclose = (event) => {
+      // const viewIndex = peerConnection.viewIndex;
+      peerConnection.close();
+      peerConnection = null;
+      //TODO: stop recording
+    };
+
+    socket.onmessage = (event) => {
+      console.log('message', event);
+    };
+
+    this.setState({
+      socket: socket
+    });
+  };
+
+
+
+
+
 
   _switchVideoType = () => {
     const isFront = !this.state.isFront;
