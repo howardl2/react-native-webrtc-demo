@@ -12,7 +12,6 @@ import {
   Platform,
 } from 'react-native';
 
-import io from 'socket.io-client';
 const connectionId = makeId();
 
 import {
@@ -28,6 +27,7 @@ import {
 // const configuration = {"iceServers": [{"url": "stun:stun.l.google.com:19302"}]};
 
 const pcPeers = {};
+const url = 'wss://push.aws-stage-rt.veritone.com/socket';
 // let peerConnection;
 // let localStream;
 
@@ -262,11 +262,11 @@ function createPeerConnection(localStream) {
 };
 
 
-function setupWebRTCSession(state) {
-  getLocalStream(true, (stream) => {
+function setupWebRTCSession(component) {
+  getLocalStream(component.state.isFront, (stream) => {
     // localStream = stream;
     // should see video feed on screen after this
-    state.setState({
+    component.setState({
       videoURL: stream.toURL(),
       localStream: stream
     });
@@ -277,30 +277,44 @@ function setupWebRTCSession(state) {
 };
 
 
-function setupWebSocket(connectionId, localStream) {
-  const socket = io.connect('wss://push.aws-stage-rt.veritone.com/socket', {transports: ['websocket']});
+// function setupWebSocket(connectionId, localStream) {
+// const socket = io.connect('wss://push.aws-stage-rt.veritone.com/socket', {transports: ['websocket']});
+const socket = new WebSocket(url);
+socket.onopen = (event) => {
+  console.log('open', event);
+};
 
-  socket.on('connect', function (data) {
-    console.log('connected', data);
-  });
+socket.onmessage = (event) => {
+  console.log('message', event);
+};
 
-  socket.on('event', function (data) {
-    console.log('event', data);
-  });
+//socket.close();
 
-  socket.on('close', function (connectionId) {
-    console.log('close');
-    leave(connectionId);
-  });
 
-  socket.on('leave', function(connectionId) {
-    console.log('leave');
-    leave(connectionId);
-  })
+// socket.on('connect', function (data) {
+//   console.log('connected', data);
+// });
+// socket.on('connection', function(data) {
+//   console.log('connection', data);
+// });
 
-  socket.on('open', function (data) {
-    console.log('open', data);
-  });
+// socket.on('event', function (data) {
+//   console.log('event', data);
+// });
+
+// socket.on('close', function (connectionId) {
+//   console.log('close');
+//   leave(connectionId);
+// });
+
+// socket.on('leave', function(connectionId) {
+//   console.log('leave');
+//   leave(connectionId);
+// })
+
+// socket.on('open', function (data) {
+//   console.log('open', data);
+// });
 
   // peerConnection.createOffer(connectionId);
 
@@ -311,7 +325,7 @@ function setupWebSocket(connectionId, localStream) {
   //     // socket.emit('exchange', {'to': socketId, 'sdp': pc.localDescription });
   //   }, logError);
   // }, logError);
-}
+// }
 
 
 
